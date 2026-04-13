@@ -90,6 +90,33 @@ function shortHex(value: string): string {
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
 }
 
+function parseAuthorizedWalletInput(input: string) {
+  const rawEntries = input
+    .split(/[\n,;]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  const uniqueEntries = Array.from(
+    new Set(rawEntries.map((entry) => entry.toLowerCase())),
+  );
+
+  const validAddresses: string[] = [];
+  const invalidAddresses: string[] = [];
+
+  uniqueEntries.forEach((entry) => {
+    if (isAddress(entry)) {
+      validAddresses.push(entry);
+    } else {
+      invalidAddresses.push(entry);
+    }
+  });
+
+  return {
+    validAddresses,
+    invalidAddresses,
+  };
+}
+
 export default function DoctorPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
@@ -103,6 +130,7 @@ export default function DoctorPage() {
   const [clinicalNotes, setClinicalNotes] = useState("");
   const [icdCode, setIcdCode] = useState("");
   const [priority, setPriority] = useState("Routine");
+  const [authorizedWalletInput, setAuthorizedWalletInput] = useState("");
 
   const [historyRecords, setHistoryRecords] = useState<ChainMedicalRecord[]>(
     [],
@@ -139,6 +167,11 @@ export default function DoctorPage() {
     (patient) =>
       patient.name.toLowerCase().includes(search.toLowerCase()) ||
       patient.id.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  const parsedAuthorizedWallets = useMemo(
+    () => parseAuthorizedWalletInput(authorizedWalletInput),
+    [authorizedWalletInput],
   );
 
   const loadPatientHistory = useCallback(async (patientAddress: string) => {
@@ -209,6 +242,13 @@ export default function DoctorPage() {
     setIsSubmittingRecord(true);
 
     try {
+      if (parsedAuthorizedWallets.invalidAddresses.length > 0) {
+        toast.error(
+          `Remove invalid wallet address(es): ${parsedAuthorizedWallets.invalidAddresses.join(", ")}`,
+        );
+        return;
+      }
+
       const payload = JSON.stringify({
         clinicalNotes,
         icdCode,
@@ -223,6 +263,7 @@ export default function DoctorPage() {
       const { cid, encryptedHash } = await uploadEncryptedRecord(
         payload,
         selectedPatient.address,
+        parsedAuthorizedWallets.validAddresses,
       );
 
       toast.loading("Submitting blockchain transaction...", {
@@ -244,6 +285,7 @@ export default function DoctorPage() {
       setClinicalNotes("");
       setIcdCode("");
       setPriority("Routine");
+      setAuthorizedWalletInput("");
       setActiveTab("history");
       await loadPatientHistory(selectedPatient.address);
     } catch (error) {
@@ -524,6 +566,35 @@ export default function DoctorPage() {
                             <option>Critical</option>
                           </select>
                         </div>
+                      </div>
+                      <div>
+                        <label className="label-sm text-primary mb-2 block">
+                          Additional Authorized Wallets (Optional)
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={authorizedWalletInput}
+                          onChange={(event) =>
+                            setAuthorizedWalletInput(event.target.value)
+                          }
+                          className="input-vault resize-none font-mono text-xs"
+                          placeholder="One 0x address per line, or comma separated"
+                        />
+                        {parsedAuthorizedWallets.invalidAddresses.length >
+                          0 && (
+                          <p className="text-xs text-tertiary mt-2">
+                            Invalid:{" "}
+                            {parsedAuthorizedWallets.invalidAddresses.join(
+                              ", ",
+                            )}
+                          </p>
+                        )}
+                        {parsedAuthorizedWallets.validAddresses.length > 0 && (
+                          <p className="text-xs text-primary mt-2">
+                            {parsedAuthorizedWallets.validAddresses.length}{" "}
+                            additional wallet(s) will receive wrapped keys.
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-start gap-3 p-4 bg-surface-container-high/20 rounded-xl">
                         <ShieldCheck
